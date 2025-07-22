@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - main # تأكد أن هذا هو اسم الفرع الرئيسي لمشروعك (main أو master)
+      - master # تم التعديل هنا من 'main' إلى 'master'
 
 jobs:
   build-and-deploy:
