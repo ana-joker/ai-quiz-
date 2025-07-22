@@ -20,7 +20,7 @@
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "esbuild": "^0.17.11",
+    "esbuild": "^0.25.8",
     "gh-pages": "^6.3.0",
     "typescript": "~5.7.2",
     "vite": "^4.5.0"
