@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://ana-joker.github.io/ai-quiz-/",  // تم التعديل هنا ليتطابق مع اسم الريبو الجديد
+  "homepage": "https://ana-joker.github.io/ai-quiz-/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -26,5 +26,3 @@
     "vite": "^4.5.0"
   }
 }
-
-
