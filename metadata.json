@@ -1,0 +1,6 @@
+{
+  "name": "Copy of AI Quiz Generator Pro",
+  "description": "An advanced AI-powered tool to generate medical quizzes from PDF documents. Users can upload a PDF, provide custom instructions, and generate interactive, step-by-step exams that can include questions based on images extracted from the source file.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
