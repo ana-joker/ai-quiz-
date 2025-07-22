@@ -6,10 +6,11 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, process.cwd(), 'VITE_');
 
     return {
-      base: '/ai-quiz-/', // تم التعديل هنا ليتطابق مع اسم الريبو الجديد
-
+      base: '/ai-quiz-/',
       plugins: [react()],
-
+      define: {
+        'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY),
+      },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
@@ -17,4 +18,3 @@ export default defineConfig(({ mode }) => {
       }
     };
 });
-
