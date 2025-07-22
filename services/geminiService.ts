@@ -18,9 +18,26 @@ const fileToGenerativePart = (base64: string, mimeType: string): Part => {
   };
 };
 
-const callGenerativeModel = async (contents: Part[], schema?: any): Promise<any> => {
+async function retryWithExponentialBackoff<T>(
+    fn: () => Promise<T>,
+    retries = 5,
+    delay = 1000
+): Promise<T> {
     try {
-        const result = await ai.models.generateContent({
+        return await fn();
+    } catch (error: any) {
+        if (retries > 0 && (error.message.includes("429") || error.message.includes("RESOURCE_EXHAUSTED"))) {
+            console.warn(`Gemini API Quota Exceeded or Rate Limited. Retrying in ${delay / 1000} seconds... Retries left: ${retries}`);
+            await new Promise(res => setTimeout(res, delay));
+            return retryWithExponentialBackoff(fn, retries - 1, delay * 2);
+        }
+        throw error;
+    }
+}
+
+const callGenerativeModel = async (contents: Part[], schema?: any): Promise<any> => {
+    const callFn = async () => {
+        const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: { parts: contents },
             ...(schema && {
@@ -31,14 +48,22 @@ const callGenerativeModel = async (contents: Part[], schema?: any): Promise<any>
             })
         });
 
-        const response: GenerateContentResponse = result;
         const text = response.text;
+        const usageMetadata = response.usageMetadata;
 
         if (!text) {
              throw new Error("Empty response from model.");
         }
 
+        if (usageMetadata && usageMetadata.totalTokenCount) {
+            console.log(`Gemini API call: ${usageMetadata.totalTokenCount} tokens used.`);
+        }
+
         return schema ? JSON.parse(text) : text;
+    };
+
+    try {
+        return await retryWithExponentialBackoff(callFn);
     } catch (e: any) {
         console.error("Gemini API Error:", e);
         throw new Error(`Error communicating with the AI model: ${e.message}`);
@@ -165,7 +190,7 @@ export const auditAndCorrectQuestion = async (question: QuizQuestion, originalTe
     3.  **Image Usage:** If 'imageIndex' is not null, does the question correctly relate to the specified image?
 
     If valid, return {"is_valid": true, "reason": "None", "flaw_type": "none"}.
-    If flawed, return {"is_valid": false, "reason": "[Brief description of flaw]", "flaw_type": "[Choose from: question, options, explanation, not_from_text, etc.]"}.
+    If flawed, return {"is_valid": false, "reason": "[Brief description of flaw]", "flaw_type": "[Choose from: question", "options", "explanation", "not_from_text", etc.]"}.
 
     **Question to Audit:** ${JSON.stringify(question)}
     Return your verdict as a JSON object.`;
