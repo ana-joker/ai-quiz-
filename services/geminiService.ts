@@ -1,18 +1,18 @@
-
 import { GoogleGenAI, GenerateContentResponse, Type, Part } from "@google/genai";
 import { QuizQuestion } from '../types';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set");
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+if (!GEMINI_API_KEY) {
+    throw new Error("VITE_GEMINI_API_KEY environment variable not set. Please ensure it's in your .env file and GitHub Secrets.");
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
-// Helper to convert base64 to a Gemini Part
 const fileToGenerativePart = (base64: string, mimeType: string): Part => {
   return {
     inlineData: {
-      data: base64.split(',')[1], // remove the "data:image/png;base64," part
+      data: base64.split(',')[1],
       mimeType,
     },
   };
@@ -33,7 +33,7 @@ const callGenerativeModel = async (contents: Part[], schema?: any): Promise<any>
 
         const response: GenerateContentResponse = result;
         const text = response.text;
-        
+
         if (!text) {
              throw new Error("Empty response from model.");
         }
@@ -47,14 +47,14 @@ const callGenerativeModel = async (contents: Part[], schema?: any): Promise<any>
 
 export const generateQuizContent = async (
     medicalText: string,
-    userImages: string[], // Changed from 'images' to 'userImages' for clarity
+    userImages: string[],
     customInstructions: string,
     mcqCount: number,
     caseCount: number,
     questionsPerCase: number,
     difficulty: string
 ): Promise<{ questions: QuizQuestion[], images: string[] }> => {
-    
+
     const parts: Part[] = [{ text: medicalText }];
     userImages.forEach(imgBase64 => {
         parts.push(fileToGenerativePart(imgBase64, 'image/png'));
@@ -102,16 +102,16 @@ export const generateQuizContent = async (
         },
         required: ["mcqs", "caseScenarios"]
     };
-    
+
     const difficultyInstruction = difficulty === "mix" ? "Create a mix of easy, medium, and hard questions." : `Ensure ALL questions generated are of **${difficulty}** difficulty.`;
     const imageInstruction = userImages.length > 0 ? `You have been provided with ${userImages.length} images by the user. You MUST create some questions based on these images. When creating an image-based question, set the 'imageIndex' to the corresponding index of the image you used (0-based). For text-only questions, set 'imageIndex' to null.` : "No images were provided by the user; do not attempt to create image-based questions.";
 
     const prompt = `
         You are an expert medical quiz creator. Based on the provided medical text and user-uploaded images, generate a set of questions.
-        
+
         **Source Content:**
         The user has provided a medical text and ${userImages.length} images. The content is provided in a multi-part format. The text is first, followed by the images.
-        
+
         **Your Task:**
         1. Generate exactly ${mcqCount} standalone MCQs.
         2. Generate exactly ${caseCount} clinical case scenarios, each with exactly ${questionsPerCase} questions.
@@ -122,7 +122,7 @@ export const generateQuizContent = async (
         7. Return the result in the specified JSON format.
     `;
 
-    parts.unshift({text: prompt}); // Prepend the main prompt
+    parts.unshift({text: prompt});
 
     const response = await callGenerativeModel(parts, responseSchema);
 
@@ -145,8 +145,7 @@ export const generateQuizContent = async (
     if (allQuestions.length === 0) {
         throw new Error("The AI model failed to generate any questions. Try adjusting the inputs or the source document.");
     }
-    
-    // Shuffle all questions
+
     for (let i = allQuestions.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [allQuestions[i], allQuestions[j]] = [allQuestions[j], allQuestions[i]];
@@ -162,12 +161,12 @@ export const auditAndCorrectQuestion = async (question: QuizQuestion, originalTe
     const auditPrompt = `Act as a strict medical question auditor. Critically audit the following medical question based ONLY on the provided source text and user-uploaded images.
     Criteria:
     1.  **Source Adherence:** Is ALL information (stem, options, explanation) derived *strictly* and *accurately* from the source content?
-    2.  **Clarity & Validity:** Is the question clear? Is there *only one* unambiguously correct answer? Are distractors plausible but incorrect?
+    2.  **Clarity & Validity:** Is there *only one* unambiguously correct answer? Are distractors plausible but incorrect?
     3.  **Image Usage:** If 'imageIndex' is not null, does the question correctly relate to the specified image?
 
     If valid, return {"is_valid": true, "reason": "None", "flaw_type": "none"}.
     If flawed, return {"is_valid": false, "reason": "[Brief description of flaw]", "flaw_type": "[Choose from: question, options, explanation, not_from_text, etc.]"}.
-    
+
     **Question to Audit:** ${JSON.stringify(question)}
     Return your verdict as a JSON object.`;
 
@@ -180,7 +179,6 @@ export const auditAndCorrectQuestion = async (question: QuizQuestion, originalTe
         return { ...question, is_flawed: false };
     }
 
-    // Attempt correction
     const correctionPrompt = `Based ONLY on the source text/images, correct the following medical question. The auditor identified a flaw in the **${auditResult.flaw_type}**: "${auditResult.reason}".
     Ensure the corrected question is accurate.
     **Source Content is provided in multi-part format.**
@@ -189,7 +187,7 @@ export const auditAndCorrectQuestion = async (question: QuizQuestion, originalTe
 
     const correctionParts: Part[] = [{text: originalText}, ...userImages.map(img => fileToGenerativePart(img, 'image/png'))];
     correctionParts.unshift({text: correctionPrompt});
-    
+
     try {
         const correctionResult = await callGenerativeModel(correctionParts, { type: Type.OBJECT, properties: { corrected_question: questionSchema } });
         if (correctionResult && correctionResult.corrected_question) {
@@ -198,13 +196,13 @@ export const auditAndCorrectQuestion = async (question: QuizQuestion, originalTe
     } catch(e) {
         console.error("Correction attempt failed:", e);
     }
-    
+
     return { ...question, is_flawed: true };
 };
 
 export const refineExplanation = async (question: QuizQuestion, originalText: string, userImages: string[]): Promise<QuizQuestion> => {
-     if (!question.is_flawed) return question; // Only refine flawed ones
-    
+     if (!question.is_flawed) return question;
+
      const explanationSchema = { type: Type.OBJECT, properties: { new_explanation: { type: Type.STRING } }, required: ["new_explanation"] };
      const correctAnswerText = question.options[question.correctAnswerIndex];
 
@@ -227,7 +225,7 @@ export const refineExplanation = async (question: QuizQuestion, originalText: st
         console.error("Explanation refinement failed:", e);
     }
 
-    return question; // return original on failure
+    return question;
 };
 
 
@@ -248,7 +246,7 @@ QUESTION: "${question}"
             model: "gemini-2.5-flash",
             contents: prompt,
         });
-        return response; // this is the stream iterator
+        return response;
     } catch (e: any) {
         console.error("Gemini API Stream Error:", e);
         throw new Error(`Error communicating with the AI model: ${e.message}`);
