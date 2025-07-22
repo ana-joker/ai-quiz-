@@ -1,6 +1,5 @@
-
 import React, { useState, useCallback } from 'react';
-import { AppStatus, ProtocolStep, LogEntry, GeneratedQuizData, ProtocolStatus } from './types';
+import { AppStatus, ProtocolStep, LogEntry, GeneratedQuizData, ProtocolStatus, QuizQuestion } from './types';
 import { INITIAL_PROTOCOL_STEPS } from './constants';
 import * as pdfService from './services/pdfService';
 import * as geminiService from './services/geminiService';
@@ -29,7 +28,7 @@ const App: React.FC = () => {
 
     // Text Mode State
     const [sourceText, setSourceText] = useState('');
-    
+
     // Shared State for active document
     const [activeDocumentText, setActiveDocumentText] = useState<string | null>(null);
 
@@ -71,7 +70,7 @@ const App: React.FC = () => {
             setPdfProcessing(false);
         }
     };
-    
+
     const handleSelectPdf = async (id: number | null) => {
         setSelectedPdfId(id);
         if (id !== null) {
@@ -102,7 +101,7 @@ const App: React.FC = () => {
 
         try {
             addLog('بدأت عملية التنفيذ.');
-            
+
             const sourceDescription = generationMode === 'pdf' ? `سحب بيانات الملف المحدد` : `تحليل النص المصدر`;
             updateProtocolStatus('p0', ProtocolStatus.ACTIVE, `البروتوكول 0: ${sourceDescription}`);
             addLog(`✔ تم تجهيز البيانات المصدر بنجاح.`, 'success');
@@ -114,38 +113,50 @@ const App: React.FC = () => {
             addLog(`✔ اكتمل البروتوكول 1: تم إنشاء ${generatedQuestions.length} سؤالًا.`, 'success');
             updateProtocolStatus('p1', ProtocolStatus.DONE);
             let currentData: GeneratedQuizData = { questions: generatedQuestions, images: returnedImages };
-            
+
             updateProtocolStatus('p2', ProtocolStatus.ACTIVE);
             addLog("2. بدء البروتوكول 2: تصحيح توزيع الإجابات (بالخلط العشوائي).");
             currentData.questions.sort(() => Math.random() - 0.5);
             addLog(`✔ اكتمل البروتوكول 2.`, 'success');
             updateProtocolStatus('p2', ProtocolStatus.DONE);
-            
+
             updateProtocolStatus('p2.8', ProtocolStatus.ACTIVE);
             addLog("2.8. بدء البروتوكول 2.8: التدقيق النقدي والتصحيح الآلي.");
-            const auditedQuestions = await Promise.all(currentData.questions.map(q => geminiService.auditAndCorrectQuestion(q, activeDocumentText, currentData.images)));
+            // Changed from Promise.all to sequential processing
+            const auditedQuestions: QuizQuestion[] = [];
+            for (const q of currentData.questions) {
+                addLog(`تدقيق السؤال: ${q.question.substring(0, 50)}...`);
+                const auditedQ = await geminiService.auditAndCorrectQuestion(q, activeDocumentText, currentData.images);
+                auditedQuestions.push(auditedQ);
+            }
             currentData.questions = auditedQuestions;
             addLog(`✔ اكتمل البروتوكول 2.8.`, 'success');
             updateProtocolStatus('p2.8', ProtocolStatus.DONE);
-            
+
             updateProtocolStatus('p2.7', ProtocolStatus.ACTIVE);
             addLog("2.7. بدء البروتوكول 2.7: تدقيق وتحسين التفسيرات.");
-            const refinedQuestions = await Promise.all(currentData.questions.map(q => geminiService.refineExplanation(q, activeDocumentText, currentData.images)));
+            // Changed from Promise.all to sequential processing
+            const refinedQuestions: QuizQuestion[] = [];
+            for (const q of currentData.questions) {
+                addLog(`تحسين تفسير السؤال: ${q.question.substring(0, 50)}...`);
+                const refinedQ = await geminiService.refineExplanation(q, activeDocumentText, currentData.images);
+                refinedQuestions.push(refinedQ);
+            }
             currentData.questions = refinedQuestions;
             addLog(`✔ اكتمل البروتوكول 2.7.`, 'success');
             updateProtocolStatus('p2.7', ProtocolStatus.DONE);
-            
+
             updateProtocolStatus('p3', ProtocolStatus.ACTIVE);
             addLog("3. بدء البروتوكول 3: توليد كود HTML للاختبار.");
             const finalHtml = htmlGenerator.generateQuizHtml(currentData);
             setGeneratedHtml(finalHtml);
             addLog(`✔ اكتمل البروتوكول 3.`, 'success');
             updateProtocolStatus('p3', ProtocolStatus.DONE);
-            
+
             updateProtocolStatus('p4', ProtocolStatus.ACTIVE);
             addLog("4. بدء البروتوكول 4: المراجعة النهائية والختام.");
             updateProtocolStatus('p4', ProtocolStatus.DONE);
-            
+
             setMainStatus(AppStatus.DONE_GENERATING);
             addLog("✅ اكتملت جميع البروتوكولات بنجاح! الاختبار جاهز للمعاينة والتنزيل.", 'success');
 
@@ -157,14 +168,14 @@ const App: React.FC = () => {
             if (activeStep) updateProtocolStatus(activeStep.id, ProtocolStatus.ERROR);
         }
     };
-    
+
     const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         setGenerationConfig({
             ...generationConfig,
             [e.target.name]: e.target.type === 'number' ? parseInt(e.target.value, 10) || 0 : e.target.value
         });
     };
-    
+
     const handleReturnToChoice = () => {
         setGenerationMode(null);
         resetGenerationState();
@@ -221,7 +232,7 @@ const App: React.FC = () => {
                 <ArrowRightIcon className="w-5 h-5"/>
                 <span>العودة إلى شاشة الاختيار</span>
             </button>
-            
+
             {generationMode === 'pdf' ? (
                 <>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
@@ -240,11 +251,11 @@ const App: React.FC = () => {
                  <>
                     <div className="bg-slate-800/70 backdrop-blur-lg p-6 rounded-lg shadow-lg border border-slate-700">
                          <h3 className="text-2xl font-bold text-white mb-4 border-b-2 border-cyan-500 pb-2">1. أدخل النص الطبي</h3>
-                         <textarea 
+                         <textarea
                              value={sourceText}
                              onChange={handleSourceTextChange}
-                             rows={10} 
-                             className="w-full bg-slate-700 border-slate-600 text-white rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-cyan-500" 
+                             rows={10}
+                             className="w-full bg-slate-700 border-slate-600 text-white rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-cyan-500"
                              placeholder="ألصق النص الطبي الكامل هنا..."
                              disabled={isGenerating}
                          />
@@ -254,7 +265,7 @@ const App: React.FC = () => {
                     {renderGenerationSettings()}
                  </>
             )}
-            
+
             {(logs.length > 0) && (
                 <div className="bg-slate-800/70 backdrop-blur-lg p-6 rounded-lg shadow-lg border border-slate-700">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -263,25 +274,25 @@ const App: React.FC = () => {
                     </div>
                 </div>
             )}
-            
+
             {mainStatus === AppStatus.DONE_GENERATING && generatedHtml && (
                 <OutputViewer htmlContent={generatedHtml} />
             )}
         </main>
     );
-    
+
     const renderInitialChoice = () => (
         <main className="page text-center container-glass p-8 rounded-lg max-w-4xl mx-auto text-slate-800">
              <h2 className="text-3xl font-bold mb-4">كيف تريد إنشاء الاختبار؟</h2>
              <p className="text-lg text-slate-600 mb-8">اختر الطريقة التي تفضلها لتوفير المادة العلمية.</p>
              <div className="flex flex-col md:flex-row gap-6 justify-center">
-                <button 
-                    onClick={() => setGenerationMode('text')} 
+                <button
+                    onClick={() => setGenerationMode('text')}
                     className="flex-1 btn-primary font-bold py-6 px-8 rounded-lg text-xl transition-transform hover:scale-105"
                 >
                     توليد من نص
                 </button>
-                 <button 
+                 <button
                     onClick={() => setGenerationMode('pdf')}
                     className="flex-1 btn-primary font-bold py-6 px-8 rounded-lg text-xl transition-transform hover:scale-105"
                     style={{backgroundColor: '#005a9e'}}
@@ -308,29 +319,29 @@ const App: React.FC = () => {
             default: return pdfProcessing ? 'status-processing' : 'status-ready';
         }
     };
-    
+
     const getStatusText = () => {
         if(pdfProcessing) return 'جاري معالجة PDF...';
         if(mainStatus === AppStatus.GENERATING) return 'جاري توليد الأسئلة...';
-        if(mainStatus === AppStatus.DONE_GENERATING) return 'اكتمل بنجاح';
-        if(mainStatus === AppStatus.ERROR) return 'فشل التنفيذ';
-        if (generationMode === null) return 'في انتظار اختيارك';
-        return 'جاهز لاستقبال الأوامر';
-    }
+        if(mainStatus === AppStatus.DONE_GENERATING) return 'اكتمل التوليد';
+        if(mainStatus === AppStatus.ERROR) return 'حدث خطأ';
+        if(mainStatus === AppStatus.IDLE) return 'جاهز';
+        return 'غير معروف';
+    };
 
     return (
-        <div className="container mx-auto p-4 md:p-8">
-            <header className="text-center mb-8">
-                <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">نظام تنفيذ البروتوكول الشامل للذكاء الاصطناعي</h1>
-                <h2 className="text-xl text-cyan-400 mb-4">مولّد اختبارات طبي بالذكاء الاصطناعي</h2>
-                <div><span className={`status-badge ${getStatusBadgeClass()}`}>{getStatusText()}</span></div>
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 relative z-10">
+            <header className="w-full max-w-4xl text-center mb-8">
+                <h1 className="text-5xl font-extrabold text-white drop-shadow-lg mb-4">WATFA-PEDIA</h1>
+                <p className="text-xl text-cyan-300 mb-6">نظام توليد الاختبارات الطبية بالذكاء الاصطناعي</p>
+                <div className={`status-badge ${getStatusBadgeClass()}`}>{getStatusText()}</div>
             </header>
             {renderContent()}
-             <footer className="text-center mt-12 text-slate-400">
-                <p>تم التطوير بواسطة الذكاء الاصطناعي مع الحفاظ على هوية WATFA-PEDIA الأصلية.</p>
-                 <a href="https://t.me/watfapedia_major" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center py-2 px-4 mt-4 rounded-full bg-slate-700/50 text-cyan-400 font-bold no-underline transition-transform hover:scale-105 shadow-lg">
-                    <TelegramIcon className="w-5 h-5 me-2 rtl:ml-2 rtl:mr-0" />
-                    <span>قناة WATFA-PEDIA على تيليجرام</span>
+            <footer className="mt-12 text-center text-slate-400 text-sm">
+                <p>&copy; 2025 WATFA-PEDIA. جميع الحقوق محفوظة.</p>
+                <a href="https://t.me/watfapedia_major" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center py-2 px-4 mt-4 rounded-full bg-slate-700 text-cyan-400 no-underline transition-transform hover:scale-105 shadow-md">
+                    <TelegramIcon className="w-5 h-5 ml-2"/>
+                    <span>اشترك في قناة WATFA-PEDIA</span>
                 </a>
             </footer>
         </div>
